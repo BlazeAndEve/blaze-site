@@ -1,1 +1,17 @@
+backend:
+  name: github
+  repo: BlazeAndEve/blaze-site
+  branch: main
 
+media_folder: "mio-sito/public/images"
+public_folder: "/images"
+
+collections:
+  - name: "uscite"
+    label: "Gestione Uscite"
+    files:
+      - file: "mio-sito/timings.json"
+        label: "Dati Uscite e Novità"
+        name: "timings"
+        fields:
+          - {label: "Contenuto JSON", name: "body", widget: "text"}
