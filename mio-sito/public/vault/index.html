@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>The Vault - BlazeAndEve</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+<style>body{font-family:'Inter',sans-serif;background:#0a0a0a;color:#fff;padding-bottom:220px}.btn-gold{background:linear-gradient(135deg,#D4AF37,#F9E076);color:#000;font-weight:800}.card{background:rgba(255,255,255,.05);border:1px solid rgba(212,175,55,.18)}.track{background:#151515;border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:14px}.track.active{border:2px solid #D4AF37;background:#1e1a0a}#playerWrap{position:fixed;bottom:0;left:0;right:0;background:#111;border-top:3px solid #D4AF37;padding:16px;z-index:50}</style>
+<script src="/__/firebase/8.10.1/firebase-app.js"></script>
+<script src="/__/firebase/8.10.1/firebase-auth.js"></script>
+<script src="/__/firebase/8.10.1/firebase-storage.js"></script>
+<script src="/__/firebase/init.js"></script>
+</head>
+<body>
+<header class="p-4 flex justify-between items-center border-b border-white/10 bg-[#0a0a0a] sticky top-0 z-20">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-yellow-200 flex items-center justify-center font-black text-black text-[10px]">B&E</div>
+<span class="font-extrabold tracking-widest text-amber-300">BLAZE & EVE</span>
+</div>
+<div id="userInfo" class="hidden items-center gap-2"><img id="userPic" class="w-8 h-8 rounded-full"><button onclick="logout()" class="text-xs border border-white/20 px-3 py-1 rounded-full">Sign out</button></div>
+</header>
+
+<div class="max-w-3xl mx-auto p-4 mt-8">
+<div id="loggedOut" class="card rounded-2xl p-10 text-center">
+<div class="text-4xl mb-3">🔒</div><h1 class="text-3xl font-extrabold mb-2">The Vault</h1><p class="text-white/60 mb-8">Exclusive unreleased tracks for YouTube subscribers only.</p>
+<button onclick="login()" class="btn-gold px-10 py-4 rounded-full text-[15px]">Login with Google & Check Subscription</button>
+<p class="text-[11px] text-white/20 mt-5">Subscriber-only access • @blazeandeve on YouTube</p>
+</div>
+<div id="checkingSub" class="hidden card rounded-2xl p-8 text-center"><p class="animate-pulse">Checking YouTube Subscription...</p></div>
+<div id="notSubscribed" class="hidden card rounded-2xl p-8 text-center">
+<h2 class="text-xl font-bold mb-2">Almost there! 🔔</h2><p class="text-white/60 mb-2">Hi <span id="nsName"></span>, subscribe to <b>@blazeandeve</b> on YouTube to unlock.</p>
+<a href="https://www.youtube.com/@blazeandeve?sub_confirmation=1" target="_blank" class="btn-gold inline-block px-8 py-3 rounded-full mt-4">Subscribe on YouTube</a><br>
+<button onclick="checkAgain()" class="mt-4 text-xs text-white/50 underline">I subscribed, check again</button>
+</div>
+<div id="loggedIn" class="hidden">
+<div class="flex items-center gap-3 mb-4"><div class="w-12 h-12 rounded-full bg-gradient-to-br from-amber-400 to-yellow-200 flex items-center justify-center font-black text-black text-xs">B&E</div><div><div class="font-bold">Welcome, <span id="welcomeName" class="text-amber-300"></span></div><div class="text-xs text-green-400">✅ Subscriber Verified • Vault Unlocked</div></div></div>
+<div class="card rounded-2xl p-4">
+<div class="flex justify-between items-center mb-3"><h3 class="font-bold">🎸 Unreleased Tracks - Subscriber Exclusive</h3><span id="totalCount" class="text-xs bg-amber-500/20 px-3 py-1 rounded-full">- tracks</span></div>
+<div class="flex gap-2 mb-3"><input id="search" oninput="filterTracks()" placeholder="Search tracks..." class="bg-black/50 border border-white/10 rounded-full px-4 py-2 text-sm flex-1"><label class="flex items-center gap-1 text-xs"><input type="checkbox" id="continuous" checked> Continuous</label><label class="flex items-center gap-1 text-xs"><input type="checkbox" id="shuffle"> Shuffle</label></div>
+<div id="tracks" class="space-y-2"><p class="text-sm text-white/40">Loading vault...</p></div>
+</div>
+</div>
+</div>
+
+<div id="playerWrap" class="hidden"><div class="max-w-3xl mx-auto"><div id="nowPlaying" class="font-bold text-amber-200 truncate">-</div><div id="nowPath" class="text-[10px] text-white/30"></div><audio id="audio" controls class="w-full mt-2"></audio><div class="flex justify-center gap-3 mt-3"><button onclick="prevTrack()" class="bg-white/10 px-6 py-2 rounded-full">⏮</button><button onclick="togglePlay()" id="playPauseBtn" class="btn-gold w-12 h-12 rounded-full text-xl">▶</button><button onclick="nextTrack()" class="bg-white/10 px-6 py-2 rounded-full">⏭</button></div><div id="time" class="text-center text-[10px] text-white/30 mt-2"></div></div></div>
+
+<script>
+var TARGET_CHANNEL_ID='UCn9mhZ2RXfrxK-C9-9_qP8w';
+var auth=firebase.auth(); var storage=firebase.storage();
+var provider=new firebase.auth.GoogleAuthProvider(); provider.addScope('https://www.googleapis.com/auth/youtube.readonly');
+var accessToken=null; var allTracks=[]; var currentIndex=0; var isPlaying=false;
+function login(){ auth.signInWithPopup(provider).then(function(r){ accessToken=r.credential.accessToken; handleAuth(r.user); }).catch(function(e){ alert(e.message); }); }
+function logout(){ auth.signOut(); }
+async function checkYouTubeSubscription(token){
+ try{
+  var url='https://www.googleapis.com/youtube/v3/subscriptions?part=snippet&mine=true&maxResults=50'; var pageToken='';
+  do{
+   var res=await fetch(url+(pageToken?'&pageToken='+pageToken:''), {headers:{Authorization:'Bearer '+token}});
+   if(!res.ok) return false;
+   var data=await res.json();
+   if(data.items) for(var i=0;i<data.items.length;i++){ if(data.items[i].snippet.resourceId.channelId===TARGET_CHANNEL_ID) return true; }
+   pageToken=data.nextPageToken;
+  }while(pageToken);
+  return false;
+ }catch(e){ return false; }
+}
+async function handleAuth(user){
+ document.getElementById('loggedOut').classList.add('hidden'); document.getElementById('checkingSub').classList.remove('hidden'); document.getElementById('notSubscribed').classList.add('hidden'); document.getElementById('loggedIn').classList.add('hidden');
+ var isSub=await checkYouTubeSubscription(accessToken);
+ document.getElementById('checkingSub').classList.add('hidden');
+ if(isSub){
+  document.getElementById('loggedIn').classList.remove('hidden'); document.getElementById('userInfo').classList.remove('hidden'); document.getElementById('userInfo').classList.add('flex');
+  document.getElementById('userPic').src=user.photoURL; document.getElementById('welcomeName').innerText=user.displayName; loadVault();
+ } else {
+  document.getElementById('notSubscribed').classList.remove('hidden'); document.getElementById('nsName').innerText=user.displayName||user.email; document.getElementById('userInfo').classList.remove('hidden'); document.getElementById('userInfo').classList.add('flex'); document.getElementById('userPic').src=user.photoURL;
+ }
+}
+function checkAgain(){ if(accessToken) handleAuth(auth.currentUser); else login(); }
+function formatName(n){ return n.replace(/\.[^/.]+$/, '').replace(/[_-]+/g,' ').replace(/\b\w/g,function(l){return l.toUpperCase();}); }
+async function listRecursive(ref,label,results){
+ try{ var list=await ref.listAll(); for(var i=0;i<list.items.length;i++) if(/\.(mp3|wav|m4a|flac|ogg)$/i.test(list.items[i].name)) results.push({ref:list.items[i],folder:label}); for(var j=0;j<list.prefixes.length;j++) await listRecursive(list.prefixes[j], label+'/'+list.prefixes[j].name, results); }catch(e){}
+}
+async function loadVault(){
+ var tracksDiv=document.getElementById('tracks');
+ try{
+  var rootResults=[]; var musicResults=[];
+  await listRecursive(storage.ref(), 'ROOT', rootResults);
+  var rootAudio=rootResults.filter(function(r){return !r.ref.fullPath.startsWith('music/');});
+  await listRecursive(storage.ref('music'), 'MUSIC', musicResults);
+  document.getElementById('totalCount').innerText=(rootAudio.length+musicResults.length)+' tracks';
+  var allRefs=[].concat(rootAudio,musicResults);
+  if(!allRefs.length){ tracksDiv.innerHTML='<p class="text-white/40 text-sm">No tracks found.</p>'; return; }
+  tracksDiv.innerHTML='';
+  for(var i=0;i<allRefs.length;i++){
+   try{
+    var item=allRefs[i]; var url=await item.ref.getDownloadURL(); var name=formatName(item.ref.name);
+    allTracks.push({name:name,url:url,folder:item.folder,original:item.ref.fullPath});
+    var idx=allTracks.length-1;
+    var el=document.createElement('div'); el.className='track flex items-center justify-between gap-3'; el.id='track-'+idx; el.setAttribute('data-name',name.toLowerCase());
+    el.innerHTML='<div class="flex items-center gap-3 min-w-0 flex-1"><div class="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center">🎵</div><div class="min-w-0 flex-1"><div class="font-bold text-sm truncate">'+name+'</div><div class="text-[10px] text-white/30 truncate">'+item.folder+'</div></div></div><button onclick="playTrack('+idx+')" class="btn-gold px-5 py-2.5 rounded-full text-xs">Play</button>';
+    tracksDiv.appendChild(el);
+   }catch(e){}
+  }
+ }catch(e){ tracksDiv.innerHTML='Error: '+e.message; }
+}
+function playTrack(i){ currentIndex=i; var t=allTracks[i]; document.getElementById('nowPlaying').innerText=t.name; document.getElementById('nowPath').innerText=(i+1)+'/'+allTracks.length+' • '+t.folder; var audio=document.getElementById('audio'); audio.src=t.url; document.getElementById('playerWrap').classList.remove('hidden'); audio.play(); isPlaying=true; updateBtn(); document.querySelectorAll('.track').forEach(function(e){e.classList.remove('active');}); var act=document.getElementById('track-'+i); if(act) act.classList.add('active'); }
+function togglePlay(){ var a=document.getElementById('audio'); if(a.paused){a.play(); isPlaying=true;} else {a.pause(); isPlaying=false;} updateBtn(); }
+function updateBtn(){document.getElementById('playPauseBtn').innerText=isPlaying?'⏸':'▶';}
+function nextTrack(){ if(!allTracks.length) return; var sh=document.getElementById('shuffle').checked; currentIndex=sh?Math.floor(Math.random()*allTracks.length):(currentIndex+1)%allTracks.length; playTrack(currentIndex); }
+function prevTrack(){ if(!allTracks.length) return; currentIndex=(currentIndex-1+allTracks.length)%allTracks.length; playTrack(currentIndex); }
+function filterTracks(){ var q=document.getElementById('search').value.toLowerCase(); document.querySelectorAll('.track').forEach(function(el){el.style.display=el.getAttribute('data-name').includes(q)?'flex':'none';}); }
+var audioEl=document.getElementById('audio');
+audioEl.addEventListener('ended',function(){ if(document.getElementById('continuous').checked) nextTrack(); });
+audioEl.addEventListener('timeupdate',function(){ var cur=Math.floor(audioEl.currentTime); var dur=Math.floor(audioEl.duration||0); function fmt(s){var m=Math.floor(s/60); var sc=s%60; return (m<10?'0'+m:m)+':'+(sc<10?'0'+sc:sc);} document.getElementById('time').innerText=fmt(cur)+' / '+(isNaN(dur)?'--:--':fmt(dur)); });
+audioEl.addEventListener('play',function(){isPlaying=true; updateBtn();}); audioEl.addEventListener('pause',function(){isPlaying=false; updateBtn();});
+auth.onAuthStateChanged(function(u){ if(!u){ document.getElementById('loggedOut').classList.remove('hidden'); document.getElementById('loggedIn').classList.add('hidden'); document.getElementById('checkingSub').classList.add('hidden'); document.getElementById('notSubscribed').classList.add('hidden'); document.getElementById('userInfo').classList.add('hidden'); } });
+</script>
+</body></html>
